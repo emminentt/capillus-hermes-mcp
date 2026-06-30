@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.example.capillus-monitor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/.capillus-home-monitor/.venv/bin/python</string>
+    <string>/Users/YOU/.capillus-home-monitor/capillus_monitor.py</string>
+    <string>--config</string>
+    <string>/Users/YOU/.capillus-home-monitor/config.json</string>
+    <string>run</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/.capillus-home-monitor</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/.capillus-home-monitor/data/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/.capillus-home-monitor/data/launchd.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+</dict>
+</plist>

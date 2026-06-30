@@ -1,0 +1,42 @@
+{
+  "device": {
+    "address": null,
+    "name_contains": [
+      "capillus",
+      "curallux",
+      "spectrum",
+      "laser",
+      "cap"
+    ],
+    "service_uuids": [],
+    "manufacturer_data_keys": []
+  },
+  "scan": {
+    "interval_seconds": 60,
+    "timeout_seconds": 12,
+    "present_rssi_min": -95,
+    "stale_after_seconds": 180,
+    "log_unmatched": true,
+    "unmatched_rssi_min": -75
+  },
+  "session": {
+    "expected_seconds": 360,
+    "min_complete_seconds": 240,
+    "max_complete_seconds": 900,
+    "daily_goal": 1
+  },
+  "notifications": {
+    "enabled": true,
+    "notify_on_connect": true,
+    "notify_on_complete": true,
+    "notify_on_missing_after_hour": 21
+  },
+  "storage": {
+    "data_dir": "data",
+    "sqlite_path": "data/capillus_monitor.sqlite3",
+    "observations_jsonl": "data/observations.jsonl",
+    "candidates_jsonl": "data/candidates.jsonl",
+    "state_path": "data/state.json",
+    "log_path": "data/capillus_monitor.log"
+  }
+}

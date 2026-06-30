@@ -1,0 +1,33 @@
+{
+  "name": "capillus-hermes-mcp",
+  "version": "0.1.0",
+  "description": "Local-first MCP server and BLE monitor for Bluetooth-enabled Capillus caps.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "capillus-hermes-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "inspect": "tsx src/index.ts inspect",
+    "mcp:list": "tsx scripts/mcp-list-tools.ts",
+    "secret-scan": "tsx scripts/secret-scan.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^16.4.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

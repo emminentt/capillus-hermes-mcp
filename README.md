@@ -21,6 +21,8 @@ Bluetooth-enabled Capillus caps appear only during the treatment power window. T
 
 The default matcher looks for names like `Capillus_CAP`, manufacturer data keys, and optional pinned addresses. You can use your own cap by turning it on once and letting the monitor auto-detect it, then pinning the discovered identity in `monitor/config.json`.
 
+By default a session is only marked complete after a full 360-second observed treatment window. Shorter observations remain logged as incomplete, because dropped BLE advertisements should not become false adherence credit.
+
 ## Install The Monitor
 
 ```bash
@@ -92,4 +94,3 @@ The public monitor does not send control commands. It uses local Bluetooth prese
 ## Safety
 
 This is adherence telemetry, not medical advice. It does not evaluate hair growth, alter treatment, or control the cap.
-

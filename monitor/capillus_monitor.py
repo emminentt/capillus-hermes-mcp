@@ -35,7 +35,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "session": {
         "expected_seconds": 360,
-        "min_complete_seconds": 240,
+        "min_complete_seconds": 360,
         "max_complete_seconds": 900,
         "daily_goal": 1,
     },
@@ -399,10 +399,10 @@ class CapillusMonitor:
                 session_id = state.get("current_session_id")
                 start = parse_time(state.get("current_session_start_at"))
                 duration = (last_seen - start).total_seconds() if last_seen and start else 0.0
-                completed = (
-                    duration >= float(session_cfg.get("min_complete_seconds", 240))
-                    and duration <= float(session_cfg.get("max_complete_seconds", 900))
+                min_complete = float(
+                    session_cfg.get("min_complete_seconds", session_cfg.get("expected_seconds", 360))
                 )
+                completed = duration >= min_complete and duration <= float(session_cfg.get("max_complete_seconds", 900))
                 if session_id:
                     self.store.end_session(int(session_id), iso(last_seen or now), completed)
                 self.log.info(

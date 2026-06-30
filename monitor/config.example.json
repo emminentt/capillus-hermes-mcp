@@ -21,7 +21,7 @@
   },
   "session": {
     "expected_seconds": 360,
-    "min_complete_seconds": 240,
+    "min_complete_seconds": 360,
     "max_complete_seconds": 900,
     "daily_goal": 1
   },

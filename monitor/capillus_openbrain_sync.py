@@ -93,6 +93,16 @@ def recent_sessions(sqlite_path: Path, limit: int = 200) -> list[dict[str, Any]]
             if "inferred_duration_seconds" in cols
             else "duration_seconds AS inferred_duration_seconds"
         )
+        inference_window = (
+            "inference_window_seconds"
+            if "inference_window_seconds" in cols
+            else "duration_seconds AS inference_window_seconds"
+        )
+        close_detected = (
+            "close_detected_at"
+            if "close_detected_at" in cols
+            else "end_at AS close_detected_at"
+        )
         basis = (
             "completion_basis"
             if "completion_basis" in cols
@@ -100,8 +110,9 @@ def recent_sessions(sqlite_path: Path, limit: int = 200) -> list[dict[str, Any]]
         )
         rows = conn.execute(
             f"""
-            SELECT id, start_at, end_at, duration_seconds, {observed}, {inferred},
-                   {basis}, completed, address, name
+            SELECT id, start_at, end_at, duration_seconds, {observed},
+                   {inference_window}, {inferred}, {close_detected}, {basis},
+                   completed, address, name
             FROM sessions
             ORDER BY id DESC
             LIMIT ?
@@ -146,13 +157,15 @@ def numeric(value: Any, fallback: float = 0.0) -> float:
 def session_capture_text(session: dict[str, Any], zone: ZoneInfo, person_name: str, daily_rule: str) -> str:
     date = local_date(session.get("start_at"), zone) or "unknown-date"
     observed = numeric(session.get("observed_duration_seconds"), numeric(session.get("duration_seconds")))
+    inference_window = numeric(session.get("inference_window_seconds"), observed)
     inferred = numeric(session.get("inferred_duration_seconds"), observed)
     basis = session.get("completion_basis") or "unknown"
     return (
         f"Capillus adherence log for {person_name}: on {date}, {person_name} completed the required "
         f"daily Capillus treatment. Session id {session['id']} ran from "
         f"{local_stamp(session.get('start_at'), zone)} to {local_stamp(session.get('end_at'), zone)}. "
-        f"Observed BLE window: {observed:.1f}s. Credited treatment duration: {inferred:.1f}s. "
+        f"Observed BLE window: {observed:.1f}s. Inference window: {inference_window:.1f}s. "
+        f"Credited treatment duration: {inferred:.1f}s. "
         f"Completion basis: {basis}. {daily_rule}"
     )
 
@@ -208,7 +221,9 @@ class OpenBrainSync:
                 "capillus_date": local_date(session.get("start_at"), self.zone),
                 "completion_basis": session.get("completion_basis"),
                 "observed_duration_seconds": session.get("observed_duration_seconds"),
+                "inference_window_seconds": session.get("inference_window_seconds"),
                 "inferred_duration_seconds": session.get("inferred_duration_seconds"),
+                "close_detected_at": session.get("close_detected_at"),
             }
             receipt = capture(self.openbrain, self.tenant, content, metadata, importance=8)
             state["captured_sessions"][session_id] = {

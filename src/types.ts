@@ -21,7 +21,9 @@ export interface CapillusSession {
   end_at: string | null;
   duration_seconds: number | null;
   observed_duration_seconds?: number | null;
+  inference_window_seconds?: number | null;
   inferred_duration_seconds?: number | null;
+  close_detected_at?: string | null;
   treatment_seconds?: number | null;
   completion_basis?: string | null;
   completed: number;

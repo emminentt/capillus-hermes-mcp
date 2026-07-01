@@ -17,12 +17,12 @@ Bluetooth-enabled Capillus caps appear only during the treatment power window. T
 - latest RSSI and BLE identity
 - inferred treatment start/end
 - completed sessions
-- raw observed BLE duration, credited treatment duration, and completion basis
+- raw observed BLE duration, inference window, credited treatment duration, and completion basis
 - daily adherence and streaks
 
 The default matcher looks for names like `Capillus_CAP`, manufacturer data keys, and optional pinned addresses. You can use your own cap by turning it on once and letting the monitor auto-detect it, then pinning the discovered identity in `monitor/config.json`.
 
-By default a session is marked complete after either a full 360-second observed treatment window or a near-full observed cap power window within `complete_grace_seconds`. The raw BLE window is preserved as `observed_duration_seconds`, while the credited treatment duration is exposed as `inferred_duration_seconds` with a `completion_basis` such as `observed_full_window` or `inferred_cap_power_cycle`. Much shorter observations remain incomplete, because dropped BLE advertisements should not become false adherence credit.
+By default a session is marked complete after a full 360-second observed treatment window, a near-full observed cap power window within `complete_grace_seconds`, or a near-full stale-close window where the monitor saw the cap recently enough to infer that the treatment cycle kept running after the last advertisement. The raw BLE window is preserved as `observed_duration_seconds`; the stale-close span is preserved as `inference_window_seconds` and `close_detected_at`; the credited treatment duration is exposed as `inferred_duration_seconds` with a `completion_basis` such as `observed_full_window`, `inferred_cap_power_cycle`, or `inferred_stale_power_window`. Much shorter observations remain incomplete, because dropped BLE advertisements should not become false adherence credit.
 
 ## Install The Monitor
 
@@ -104,7 +104,7 @@ Hermes exposes the tools with its normal `mcp_<server>_<tool>` prefix, for examp
 
 - `capillus_status`: current presence, latest seen time, active session, device identity.
 - `capillus_today`: local-day treatment completion and active session.
-- `capillus_sessions`: recent inferred treatment sessions, including observed duration, credited duration, and completion basis.
+- `capillus_sessions`: recent inferred treatment sessions, including observed duration, inference window, credited duration, and completion basis.
 - `capillus_adherence`: daily adherence, missed days, and current streak.
 - `capillus_observations`: recent matched BLE observations and optional nearby candidates.
 - `capillus_device`: pinned identity and observed proprietary BLE service notes.

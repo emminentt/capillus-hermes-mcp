@@ -147,24 +147,48 @@ class BleObservation:
 class CompletionDecision:
     completed: bool
     observed_duration_seconds: float
+    inference_window_seconds: float
     inferred_duration_seconds: float
     completion_basis: str
 
 
-def completion_decision(session_cfg: dict[str, Any], observed_duration: float) -> CompletionDecision:
+def completion_decision(
+    session_cfg: dict[str, Any],
+    observed_duration: float,
+    inference_window_duration: float | None = None,
+) -> CompletionDecision:
     expected = float(session_cfg.get("expected_seconds", 360))
     min_complete = float(session_cfg.get("min_complete_seconds", expected))
     complete_grace = max(0.0, float(session_cfg.get("complete_grace_seconds", 0)))
     max_complete = float(session_cfg.get("max_complete_seconds", 900))
     duration = max(0.0, observed_duration)
+    inference_window_source = (
+        inference_window_duration if inference_window_duration is not None else duration
+    )
+    inference_window = max(duration, max(0.0, inference_window_source))
+    near_complete = max(0.0, min_complete - complete_grace)
 
     if duration > max_complete:
-        return CompletionDecision(False, duration, duration, "out_of_range_long_window")
+        return CompletionDecision(False, duration, inference_window, duration, "out_of_range_long_window")
     if duration >= min_complete:
-        return CompletionDecision(True, duration, duration, "observed_full_window")
-    if duration >= max(0.0, min_complete - complete_grace):
-        return CompletionDecision(True, duration, max(expected, min_complete), "inferred_cap_power_cycle")
-    return CompletionDecision(False, duration, duration, "incomplete_short_window")
+        return CompletionDecision(True, duration, inference_window, duration, "observed_full_window")
+    if duration >= near_complete:
+        return CompletionDecision(
+            True,
+            duration,
+            inference_window,
+            max(expected, min_complete),
+            "inferred_cap_power_cycle",
+        )
+    if inference_window >= near_complete:
+        return CompletionDecision(
+            True,
+            duration,
+            inference_window,
+            max(expected, min_complete),
+            "inferred_stale_power_window",
+        )
+    return CompletionDecision(False, duration, inference_window, duration, "incomplete_short_window")
 
 
 class Store:
@@ -209,7 +233,9 @@ class Store:
                     end_at TEXT,
                     duration_seconds REAL,
                     observed_duration_seconds REAL,
+                    inference_window_seconds REAL,
                     inferred_duration_seconds REAL,
+                    close_detected_at TEXT,
                     completion_basis TEXT,
                     completed INTEGER NOT NULL DEFAULT 0,
                     address TEXT,
@@ -218,7 +244,9 @@ class Store:
                 """
             )
             self._ensure_column(conn, "sessions", "observed_duration_seconds", "REAL")
+            self._ensure_column(conn, "sessions", "inference_window_seconds", "REAL")
             self._ensure_column(conn, "sessions", "inferred_duration_seconds", "REAL")
+            self._ensure_column(conn, "sessions", "close_detected_at", "TEXT")
             self._ensure_column(conn, "sessions", "completion_basis", "TEXT")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_observations_at ON observations(at)"
@@ -289,7 +317,13 @@ class Store:
             )
             return int(cur.lastrowid)
 
-    def end_session(self, session_id: int, end_at: str, decision: CompletionDecision) -> None:
+    def end_session(
+        self,
+        session_id: int,
+        end_at: str,
+        decision: CompletionDecision,
+        close_detected_at: str | None = None,
+    ) -> None:
         with self._connect() as conn:
             row = conn.execute("SELECT start_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
             if not row:
@@ -300,7 +334,9 @@ class Store:
                 SET end_at = ?,
                     duration_seconds = ?,
                     observed_duration_seconds = ?,
+                    inference_window_seconds = ?,
                     inferred_duration_seconds = ?,
+                    close_detected_at = ?,
                     completion_basis = ?,
                     completed = ?
                 WHERE id = ?
@@ -309,7 +345,9 @@ class Store:
                     end_at,
                     decision.observed_duration_seconds,
                     decision.observed_duration_seconds,
+                    decision.inference_window_seconds,
                     decision.inferred_duration_seconds,
+                    close_detected_at or end_at,
                     decision.completion_basis,
                     1 if decision.completed else 0,
                     session_id,
@@ -338,7 +376,9 @@ class Store:
                     UPDATE sessions
                     SET duration_seconds = ?,
                         observed_duration_seconds = ?,
+                        inference_window_seconds = ?,
                         inferred_duration_seconds = ?,
+                        close_detected_at = COALESCE(close_detected_at, end_at),
                         completion_basis = ?,
                         completed = ?
                     WHERE id = ?
@@ -346,6 +386,7 @@ class Store:
                     (
                         decision.observed_duration_seconds,
                         decision.observed_duration_seconds,
+                        decision.inference_window_seconds,
                         decision.inferred_duration_seconds,
                         decision.completion_basis,
                         1 if decision.completed else 0,
@@ -506,12 +547,14 @@ class CapillusMonitor:
                 session_id = state.get("current_session_id")
                 start = parse_time(state.get("current_session_start_at"))
                 duration = (last_seen - start).total_seconds() if last_seen and start else 0.0
-                decision = completion_decision(session_cfg, duration)
+                inference_window = (now - start).total_seconds() if start else duration
+                decision = completion_decision(session_cfg, duration, inference_window)
                 if session_id:
-                    self.store.end_session(int(session_id), iso(last_seen or now), decision)
+                    self.store.end_session(int(session_id), iso(last_seen or now), decision, iso(now))
                 self.log.info(
-                    "Capillus candidate/session ended: observed=%.0fs inferred=%.0fs completed=%s basis=%s",
+                    "Capillus candidate/session ended: observed=%.0fs inference_window=%.0fs inferred=%.0fs completed=%s basis=%s",
                     decision.observed_duration_seconds,
+                    decision.inference_window_seconds,
                     decision.inferred_duration_seconds,
                     decision.completed,
                     decision.completion_basis,

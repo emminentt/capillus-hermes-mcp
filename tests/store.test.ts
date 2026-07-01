@@ -66,20 +66,51 @@ describe("CapillusStore", () => {
     execFileSync("sqlite3", [
       config.sqlitePath,
       `ALTER TABLE sessions ADD COLUMN observed_duration_seconds REAL;
+       ALTER TABLE sessions ADD COLUMN inference_window_seconds REAL;
        ALTER TABLE sessions ADD COLUMN inferred_duration_seconds REAL;
+       ALTER TABLE sessions ADD COLUMN close_detected_at TEXT;
        ALTER TABLE sessions ADD COLUMN completion_basis TEXT;
        UPDATE sessions
        SET duration_seconds = 333,
            observed_duration_seconds = 333,
+           inference_window_seconds = 333,
            inferred_duration_seconds = 360,
+           close_detected_at = end_at,
            completion_basis = 'inferred_cap_power_cycle'
        WHERE id = 1;`
     ]);
     const store = new CapillusStore(config);
     const completed = store.sessions(3, 10, false)[0];
     expect(completed?.duration_seconds).toBe(333);
+    expect(completed?.inference_window_seconds).toBe(333);
     expect(completed?.treatment_seconds).toBe(360);
     expect(completed?.completion_basis).toBe("inferred_cap_power_cycle");
     expect(store.adherence(3).some((day) => day.completed_seconds === 360)).toBe(true);
+  });
+
+  it("preserves stale-close inference fields for completed cap power windows", () => {
+    const config = fixtureConfig();
+    execFileSync("sqlite3", [
+      config.sqlitePath,
+      `ALTER TABLE sessions ADD COLUMN observed_duration_seconds REAL;
+       ALTER TABLE sessions ADD COLUMN inference_window_seconds REAL;
+       ALTER TABLE sessions ADD COLUMN inferred_duration_seconds REAL;
+       ALTER TABLE sessions ADD COLUMN close_detected_at TEXT;
+       ALTER TABLE sessions ADD COLUMN completion_basis TEXT;
+       UPDATE sessions
+       SET duration_seconds = 293,
+           observed_duration_seconds = 293,
+           inference_window_seconds = 348,
+           inferred_duration_seconds = 360,
+           close_detected_at = datetime('now', '-1 day', '+348 seconds'),
+           completion_basis = 'inferred_stale_power_window'
+       WHERE id = 1;`
+    ]);
+    const store = new CapillusStore(config);
+    const completed = store.sessions(3, 10, false)[0];
+    expect(completed?.observed_duration_seconds).toBe(293);
+    expect(completed?.inference_window_seconds).toBe(348);
+    expect(completed?.treatment_seconds).toBe(360);
+    expect(completed?.completion_basis).toBe("inferred_stale_power_window");
   });
 });

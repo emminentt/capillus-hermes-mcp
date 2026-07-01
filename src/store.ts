@@ -126,10 +126,16 @@ export class CapillusStore {
     const inferred = columns.has("inferred_duration_seconds")
       ? "inferred_duration_seconds"
       : "duration_seconds AS inferred_duration_seconds";
+    const inferenceWindow = columns.has("inference_window_seconds")
+      ? "inference_window_seconds"
+      : "duration_seconds AS inference_window_seconds";
+    const closeDetectedAt = columns.has("close_detected_at")
+      ? "close_detected_at"
+      : "end_at AS close_detected_at";
     const basis = columns.has("completion_basis")
       ? "completion_basis"
       : "CASE WHEN completed = 1 THEN 'legacy_completed' ELSE 'legacy_incomplete' END AS completion_basis";
-    return `id, start_at, end_at, duration_seconds, ${observed}, ${inferred}, ${basis}, completed, address, name`;
+    return `id, start_at, end_at, duration_seconds, ${observed}, ${inferenceWindow}, ${inferred}, ${closeDetectedAt}, ${basis}, completed, address, name`;
   }
 }
 

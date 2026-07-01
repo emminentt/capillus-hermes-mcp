@@ -154,15 +154,21 @@ def numeric(value: Any, fallback: float = 0.0) -> float:
         return fallback
 
 
+def session_unique_key(session: dict[str, Any]) -> str:
+    return f"capillus-session:{session.get('id')}:{session.get('start_at') or 'unknown-start'}"
+
+
 def session_capture_text(session: dict[str, Any], zone: ZoneInfo, person_name: str, daily_rule: str) -> str:
     date = local_date(session.get("start_at"), zone) or "unknown-date"
     observed = numeric(session.get("observed_duration_seconds"), numeric(session.get("duration_seconds")))
     inference_window = numeric(session.get("inference_window_seconds"), observed)
     inferred = numeric(session.get("inferred_duration_seconds"), observed)
     basis = session.get("completion_basis") or "unknown"
+    unique_key = session_unique_key(session)
     return (
-        f"Capillus adherence log for {person_name}: on {date}, {person_name} completed the required "
-        f"daily Capillus treatment. Session id {session['id']} ran from "
+        f"Capillus adherence log {unique_key} for {person_name}: on {date}, "
+        f"{person_name} completed the required daily Capillus treatment. "
+        f"Session id {session['id']} ran from "
         f"{local_stamp(session.get('start_at'), zone)} to {local_stamp(session.get('end_at'), zone)}. "
         f"Observed BLE window: {observed:.1f}s. Inference window: {inference_window:.1f}s. "
         f"Credited treatment duration: {inferred:.1f}s. "
@@ -218,6 +224,7 @@ class OpenBrainSync:
             metadata = {
                 "source": "capillus_home_monitor",
                 "capillus_session_id": session_id,
+                "capillus_session_unique_key": session_unique_key(session),
                 "capillus_date": local_date(session.get("start_at"), self.zone),
                 "completion_basis": session.get("completion_basis"),
                 "observed_duration_seconds": session.get("observed_duration_seconds"),

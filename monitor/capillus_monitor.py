@@ -36,6 +36,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "session": {
         "expected_seconds": 360,
         "min_complete_seconds": 360,
+        "complete_grace_seconds": 45,
         "max_complete_seconds": 900,
         "daily_goal": 1,
     },
@@ -52,6 +53,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "candidates_jsonl": "data/candidates.jsonl",
         "state_path": "data/state.json",
         "log_path": "data/capillus_monitor.log",
+    },
+    "openbrain": {
+        "enabled": False,
+        "repo_path": "/path/to/open-brain",
+        "tenant": "default",
+        "sync_interval_seconds": 300,
+        "missing_after_hour": 21,
+        "time_zone": "America/New_York",
+        "sync_state_path": "data/openbrain_sync_state.json",
+        "log_path": "data/capillus_openbrain_sync.log",
+        "notify_on_missing": True,
     },
 }
 
@@ -131,6 +143,30 @@ class BleObservation:
     matched: bool
 
 
+@dataclass
+class CompletionDecision:
+    completed: bool
+    observed_duration_seconds: float
+    inferred_duration_seconds: float
+    completion_basis: str
+
+
+def completion_decision(session_cfg: dict[str, Any], observed_duration: float) -> CompletionDecision:
+    expected = float(session_cfg.get("expected_seconds", 360))
+    min_complete = float(session_cfg.get("min_complete_seconds", expected))
+    complete_grace = max(0.0, float(session_cfg.get("complete_grace_seconds", 0)))
+    max_complete = float(session_cfg.get("max_complete_seconds", 900))
+    duration = max(0.0, observed_duration)
+
+    if duration > max_complete:
+        return CompletionDecision(False, duration, duration, "out_of_range_long_window")
+    if duration >= min_complete:
+        return CompletionDecision(True, duration, duration, "observed_full_window")
+    if duration >= max(0.0, min_complete - complete_grace):
+        return CompletionDecision(True, duration, max(expected, min_complete), "inferred_cap_power_cycle")
+    return CompletionDecision(False, duration, duration, "incomplete_short_window")
+
+
 class Store:
     def __init__(self, config: dict[str, Any], config_path: Path) -> None:
         self.config = config
@@ -172,18 +208,30 @@ class Store:
                     start_at TEXT NOT NULL,
                     end_at TEXT,
                     duration_seconds REAL,
+                    observed_duration_seconds REAL,
+                    inferred_duration_seconds REAL,
+                    completion_basis TEXT,
                     completed INTEGER NOT NULL DEFAULT 0,
                     address TEXT,
                     name TEXT
                 )
                 """
             )
+            self._ensure_column(conn, "sessions", "observed_duration_seconds", "REAL")
+            self._ensure_column(conn, "sessions", "inferred_duration_seconds", "REAL")
+            self._ensure_column(conn, "sessions", "completion_basis", "TEXT")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_observations_at ON observations(at)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_observations_address ON observations(address)"
             )
+
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def load_state(self) -> dict[str, Any]:
         if not self.state_path.exists():
@@ -241,24 +289,83 @@ class Store:
             )
             return int(cur.lastrowid)
 
-    def end_session(self, session_id: int, end_at: str, completed: bool) -> None:
+    def end_session(self, session_id: int, end_at: str, decision: CompletionDecision) -> None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT start_at FROM sessions WHERE id = ?", (session_id,)
-            ).fetchone()
+            row = conn.execute("SELECT start_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
             if not row:
                 return
-            start = parse_time(row["start_at"]) or utcnow()
-            end = parse_time(end_at) or utcnow()
-            duration = max(0.0, (end - start).total_seconds())
             conn.execute(
                 """
                 UPDATE sessions
-                SET end_at = ?, duration_seconds = ?, completed = ?
+                SET end_at = ?,
+                    duration_seconds = ?,
+                    observed_duration_seconds = ?,
+                    inferred_duration_seconds = ?,
+                    completion_basis = ?,
+                    completed = ?
                 WHERE id = ?
                 """,
-                (end_at, duration, 1 if completed else 0, session_id),
+                (
+                    end_at,
+                    decision.observed_duration_seconds,
+                    decision.observed_duration_seconds,
+                    decision.inferred_duration_seconds,
+                    decision.completion_basis,
+                    1 if decision.completed else 0,
+                    session_id,
+                ),
             )
+
+    def recalculate_sessions(self) -> int:
+        session_cfg = self.config["session"]
+        updated = 0
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, start_at, end_at
+                FROM sessions
+                WHERE end_at IS NOT NULL
+                """
+            ).fetchall()
+            for row in rows:
+                start = parse_time(row["start_at"])
+                end = parse_time(row["end_at"])
+                if not start or not end:
+                    continue
+                decision = completion_decision(session_cfg, (end - start).total_seconds())
+                conn.execute(
+                    """
+                    UPDATE sessions
+                    SET duration_seconds = ?,
+                        observed_duration_seconds = ?,
+                        inferred_duration_seconds = ?,
+                        completion_basis = ?,
+                        completed = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        decision.observed_duration_seconds,
+                        decision.observed_duration_seconds,
+                        decision.inferred_duration_seconds,
+                        decision.completion_basis,
+                        1 if decision.completed else 0,
+                        row["id"],
+                    ),
+                )
+                updated += 1
+        return updated
+
+    def latest_completed_session(self) -> sqlite3.Row | None:
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT *
+                FROM sessions
+                WHERE completed = 1 AND end_at IS NOT NULL
+                ORDER BY end_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
 
     def sessions_today(self) -> list[sqlite3.Row]:
         now = utcnow()
@@ -399,21 +506,23 @@ class CapillusMonitor:
                 session_id = state.get("current_session_id")
                 start = parse_time(state.get("current_session_start_at"))
                 duration = (last_seen - start).total_seconds() if last_seen and start else 0.0
-                min_complete = float(
-                    session_cfg.get("min_complete_seconds", session_cfg.get("expected_seconds", 360))
-                )
-                completed = duration >= min_complete and duration <= float(session_cfg.get("max_complete_seconds", 900))
+                decision = completion_decision(session_cfg, duration)
                 if session_id:
-                    self.store.end_session(int(session_id), iso(last_seen or now), completed)
+                    self.store.end_session(int(session_id), iso(last_seen or now), decision)
                 self.log.info(
-                    "Capillus candidate/session ended: duration=%.0fs completed=%s",
-                    duration,
-                    completed,
+                    "Capillus candidate/session ended: observed=%.0fs inferred=%.0fs completed=%s basis=%s",
+                    decision.observed_duration_seconds,
+                    decision.inferred_duration_seconds,
+                    decision.completed,
+                    decision.completion_basis,
                 )
-                if completed:
+                if decision.completed:
                     state["last_session_completed_at"] = iso(last_seen or now)
                     if notifications.get("enabled") and notifications.get("notify_on_complete"):
-                        mac_notify("Capillus session logged", f"Treatment session: {duration / 60:.1f} min.")
+                        mac_notify(
+                            "Capillus session logged",
+                            f"Treatment session: {decision.inferred_duration_seconds / 60:.1f} min.",
+                        )
                 state["present"] = False
                 state["current_session_id"] = None
                 state["current_session_start_at"] = None
@@ -488,6 +597,20 @@ def command_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_recalculate_sessions(args: argparse.Namespace) -> int:
+    config_path = Path(args.config).expanduser().resolve()
+    config = load_config(config_path)
+    store = Store(config, config_path)
+    updated = store.recalculate_sessions()
+    latest = store.latest_completed_session()
+    if latest:
+        state = store.load_state()
+        state["last_session_completed_at"] = latest["end_at"]
+        store.save_state(state)
+    print(json.dumps({"updated_sessions": updated}, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Capillus BLE monitor")
     parser.add_argument("--config", default="config.json")
@@ -506,6 +629,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status")
     status.set_defaults(func=command_status)
+
+    recalculate = sub.add_parser("recalculate-sessions")
+    recalculate.set_defaults(func=command_recalculate_sessions)
 
     return parser
 

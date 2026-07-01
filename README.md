@@ -17,11 +17,12 @@ Bluetooth-enabled Capillus caps appear only during the treatment power window. T
 - latest RSSI and BLE identity
 - inferred treatment start/end
 - completed sessions
+- raw observed BLE duration, credited treatment duration, and completion basis
 - daily adherence and streaks
 
 The default matcher looks for names like `Capillus_CAP`, manufacturer data keys, and optional pinned addresses. You can use your own cap by turning it on once and letting the monitor auto-detect it, then pinning the discovered identity in `monitor/config.json`.
 
-By default a session is only marked complete after a full 360-second observed treatment window. Shorter observations remain logged as incomplete, because dropped BLE advertisements should not become false adherence credit.
+By default a session is marked complete after either a full 360-second observed treatment window or a near-full observed cap power window within `complete_grace_seconds`. The raw BLE window is preserved as `observed_duration_seconds`, while the credited treatment duration is exposed as `inferred_duration_seconds` with a `completion_basis` such as `observed_full_window` or `inferred_cap_power_cycle`. Much shorter observations remain incomplete, because dropped BLE advertisements should not become false adherence credit.
 
 ## Install The Monitor
 
@@ -41,6 +42,33 @@ Run once from a GUI terminal and turn the cap on:
 ```
 
 On macOS you must grant Bluetooth permission to the Python process in System Settings. For always-on tracking, edit `monitor/deploy/launchd/com.example.capillus-monitor.plist`, replace `/Users/YOU`, copy it to `~/Library/LaunchAgents/`, and bootstrap it with `launchctl`.
+
+## Optional Open Brain Sync
+
+If you run Open Brain locally, the included sync loop can capture durable adherence facts through Open Brain's normal `capture_thought` path. It captures each completed session once and, after the configured local evening hour, captures one missing-treatment alert if the daily goal has not been met.
+
+In `monitor/config.json`, enable and point the sync at your local Open Brain checkout:
+
+```json
+{
+  "openbrain": {
+    "enabled": true,
+    "repo_path": "/Users/YOU/open-brain",
+    "tenant": "default",
+    "time_zone": "America/New_York",
+    "person_name": "the wearer",
+    "daily_rule": "Daily Capillus treatment is required and non-negotiable."
+  }
+}
+```
+
+Run once:
+
+```bash
+/Users/YOU/open-brain/.venv/bin/python ~/.capillus-home-monitor/capillus_openbrain_sync.py --config ~/.capillus-home-monitor/config.json once
+```
+
+For always-on sync, edit `monitor/deploy/launchd/com.example.capillus-openbrain-sync.plist`, replace `/Users/YOU`, copy it to `~/Library/LaunchAgents/`, and bootstrap it with `launchctl`.
 
 ## Install The MCP Server
 
@@ -76,7 +104,7 @@ Hermes exposes the tools with its normal `mcp_<server>_<tool>` prefix, for examp
 
 - `capillus_status`: current presence, latest seen time, active session, device identity.
 - `capillus_today`: local-day treatment completion and active session.
-- `capillus_sessions`: recent inferred treatment sessions.
+- `capillus_sessions`: recent inferred treatment sessions, including observed duration, credited duration, and completion basis.
 - `capillus_adherence`: daily adherence, missed days, and current streak.
 - `capillus_observations`: recent matched BLE observations and optional nearby candidates.
 - `capillus_device`: pinned identity and observed proprietary BLE service notes.

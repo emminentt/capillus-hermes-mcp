@@ -60,4 +60,26 @@ describe("CapillusStore", () => {
     expect(adherence.some((day) => day.completed === 1)).toBe(true);
     expect(summarizeStreak(adherence).missed_days.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("uses inferred treatment seconds for completed near-full BLE windows", () => {
+    const config = fixtureConfig();
+    execFileSync("sqlite3", [
+      config.sqlitePath,
+      `ALTER TABLE sessions ADD COLUMN observed_duration_seconds REAL;
+       ALTER TABLE sessions ADD COLUMN inferred_duration_seconds REAL;
+       ALTER TABLE sessions ADD COLUMN completion_basis TEXT;
+       UPDATE sessions
+       SET duration_seconds = 333,
+           observed_duration_seconds = 333,
+           inferred_duration_seconds = 360,
+           completion_basis = 'inferred_cap_power_cycle'
+       WHERE id = 1;`
+    ]);
+    const store = new CapillusStore(config);
+    const completed = store.sessions(3, 10, false)[0];
+    expect(completed?.duration_seconds).toBe(333);
+    expect(completed?.treatment_seconds).toBe(360);
+    expect(completed?.completion_basis).toBe("inferred_cap_power_cycle");
+    expect(store.adherence(3).some((day) => day.completed_seconds === 360)).toBe(true);
+  });
 });

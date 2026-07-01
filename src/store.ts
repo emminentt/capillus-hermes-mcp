@@ -39,15 +39,19 @@ export class CapillusStore {
     const safeDays = Math.max(1, Math.min(366, Math.floor(days)));
     const safeLimit = clampLimit(limit, 500);
     const completedClause = includeIncomplete ? "" : "AND completed = 1";
+    const selectList = this.sessionSelectList();
     const sql = `
-      SELECT id, start_at, end_at, duration_seconds, completed, address, name
+      SELECT ${selectList}
       FROM sessions
       WHERE start_at >= datetime('now', '-${safeDays} days')
       ${completedClause}
       ORDER BY start_at DESC
       LIMIT ${safeLimit};
     `;
-    return this.querySql<CapillusSession>(sql);
+    return this.querySql<CapillusSession>(sql).map((session) => ({
+      ...session,
+      treatment_seconds: effectiveSessionSeconds(session, this.config.expectedTreatmentSeconds)
+    }));
   }
 
   todaySessions(): CapillusSession[] {
@@ -77,7 +81,7 @@ export class CapillusStore {
       entry.total_sessions += 1;
       if (Boolean(session.completed)) {
         entry.completed += 1;
-        entry.completed_seconds += Math.round(session.duration_seconds ?? this.config.expectedTreatmentSeconds);
+        entry.completed_seconds += Math.round(effectiveSessionSeconds(session, this.config.expectedTreatmentSeconds));
       }
     }
     for (const entry of byDate.values()) {
@@ -99,6 +103,33 @@ export class CapillusStore {
     } catch {
       return [];
     }
+  }
+
+  private sessionColumns(): Set<string> {
+    try {
+      const output = execFileSync(this.config.sqliteBin, ["-json", this.config.sqlitePath, "PRAGMA table_info(sessions);"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"]
+      });
+      const rows = JSON.parse(output || "[]") as Array<{ name?: string }>;
+      return new Set(rows.flatMap((row) => (row.name ? [row.name] : [])));
+    } catch {
+      return new Set();
+    }
+  }
+
+  private sessionSelectList(): string {
+    const columns = this.sessionColumns();
+    const observed = columns.has("observed_duration_seconds")
+      ? "observed_duration_seconds"
+      : "duration_seconds AS observed_duration_seconds";
+    const inferred = columns.has("inferred_duration_seconds")
+      ? "inferred_duration_seconds"
+      : "duration_seconds AS inferred_duration_seconds";
+    const basis = columns.has("completion_basis")
+      ? "completion_basis"
+      : "CASE WHEN completed = 1 THEN 'legacy_completed' ELSE 'legacy_incomplete' END AS completion_basis";
+    return `id, start_at, end_at, duration_seconds, ${observed}, ${inferred}, ${basis}, completed, address, name`;
   }
 }
 
@@ -134,4 +165,8 @@ export function readJsonl<T>(path: string): T[] {
 
 function clampLimit(value: number, max = 200): number {
   return Math.max(1, Math.min(max, Math.floor(value)));
+}
+
+function effectiveSessionSeconds(session: CapillusSession, fallback: number): number {
+  return session.inferred_duration_seconds ?? session.duration_seconds ?? fallback;
 }

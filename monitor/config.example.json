@@ -22,6 +22,7 @@
   "session": {
     "expected_seconds": 360,
     "min_complete_seconds": 360,
+    "complete_grace_seconds": 45,
     "max_complete_seconds": 900,
     "daily_goal": 1
   },
@@ -38,5 +39,16 @@
     "candidates_jsonl": "data/candidates.jsonl",
     "state_path": "data/state.json",
     "log_path": "data/capillus_monitor.log"
+  },
+  "openbrain": {
+    "enabled": false,
+    "repo_path": "/path/to/open-brain",
+    "tenant": "default",
+    "sync_interval_seconds": 300,
+    "missing_after_hour": 21,
+    "time_zone": "America/New_York",
+    "sync_state_path": "data/openbrain_sync_state.json",
+    "log_path": "data/capillus_openbrain_sync.log",
+    "notify_on_missing": true
   }
 }

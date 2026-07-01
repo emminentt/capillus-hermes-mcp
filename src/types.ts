@@ -20,6 +20,10 @@ export interface CapillusSession {
   start_at: string;
   end_at: string | null;
   duration_seconds: number | null;
+  observed_duration_seconds?: number | null;
+  inferred_duration_seconds?: number | null;
+  treatment_seconds?: number | null;
+  completion_basis?: string | null;
   completed: number;
   address: string | null;
   name: string | null;
